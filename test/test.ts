@@ -408,13 +408,19 @@ describe("Bitecache Extended Tests", function () {
         await bitecache.getOrSet("ext-load", "null", () => (calls++, null))
         assert.equal(calls, 1)
 
-        await assert.rejects(bitecache.getOrSet("ext-load", "fail", () => Promise.reject(new Error("fail"))), /fail/)
+        await assert.rejects(
+            bitecache.getOrSet("ext-load", "fail", () => Promise.reject(new Error("fail"))),
+            /fail/
+        )
         assert.equal(bitecache.has("ext-load", "fail"), false)
         assert.equal(await bitecache.getOrSet("ext-load", "fail", () => "ok"), "ok")
     })
 
     it("getOrSet only runs the loader on invalid collections if strict is false", async function () {
-        await assert.rejects(bitecache.getOrSet("ext-invalid", "k", () => 1), /Invalid collection/)
+        await assert.rejects(
+            bitecache.getOrSet("ext-invalid", "k", () => 1),
+            /Invalid collection/
+        )
 
         bitecache.strict = false
         assert.equal(await bitecache.getOrSet("ext-invalid", "k", () => 1), 1)
@@ -432,7 +438,10 @@ describe("Bitecache Extended Tests", function () {
         assert.equal(bitecache.has("ext-list", "short"), false)
         assert.deepEqual(bitecache.keys("ext-list"), ["a", "2"])
         assert.deepEqual(bitecache.values("ext-list"), [1, "b"])
-        assert.deepEqual(bitecache.entries("ext-list"), [["a", 1], ["2", "b"]])
+        assert.deepEqual(bitecache.entries("ext-list"), [
+            ["a", 1],
+            ["2", "b"]
+        ])
         assert.equal(bitecache.stats("ext-list").hits, 0)
         assert.equal(bitecache.stats("ext-list").misses, 0)
     })
