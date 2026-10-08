@@ -512,6 +512,40 @@ describe("Bitecache Extended Tests", function () {
         assert.equal(bitecache.get("ext-clone", "merge").profile.name, "A")
     })
 
+    it("Pending loads do not write to a collection that was replaced, cleared, or changed meanwhile", async function () {
+        bitecache.setup("ext-stale", 60)
+        const slow = (value: string) => async () => (await sleep(50), value)
+
+        // Replaced collection.
+        let load = bitecache.getOrSet("ext-stale", "a", slow("old"))
+        bitecache.setup("ext-stale", 60)
+        bitecache.set("ext-stale", "a", "new")
+        assert.equal(await load, "old")
+        assert.equal(bitecache.get("ext-stale", "a"), "new")
+
+        // Cleared collection.
+        load = bitecache.getOrSet("ext-stale", "b", slow("old"))
+        bitecache.clear("ext-stale")
+        await load
+        assert.equal(bitecache.has("ext-stale", "b"), false)
+
+        // Deleted key.
+        load = bitecache.getOrSet("ext-stale", "c", slow("old"))
+        bitecache.del("ext-stale", "c")
+        await load
+        assert.equal(bitecache.has("ext-stale", "c"), false)
+
+        // Key set directly.
+        load = bitecache.getOrSet("ext-stale", "d", slow("old"))
+        bitecache.set("ext-stale", "d", "new")
+        assert.equal(await load, "old")
+        assert.equal(bitecache.get("ext-stale", "d"), "new")
+
+        // Next load after a cancelled one works as usual.
+        assert.equal(await bitecache.getOrSet("ext-stale", "b", () => "fresh"), "fresh")
+        assert.equal(bitecache.get("ext-stale", "b"), "fresh")
+    })
+
     it("Typed collection handle uses the named collection", async function () {
         bitecache.setup("ext-typed", 60)
         const users = bitecache.collection("ext-typed")

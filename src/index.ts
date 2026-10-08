@@ -172,6 +172,9 @@ class Bitecache {
             // Clone first so a failed clone keeps the existing value.
             const data = store.clone ? structuredClone(value) : value
 
+            // A pending load for this key is now stale.
+            store.pending.delete(id)
+
             // Delete first so overwritten keys also become the most recently used.
             store.items.delete(id)
             store.items.set(id, {data: data, expires: Date.now() + ttl, ttl: ttl})
@@ -232,12 +235,18 @@ class Bitecache {
             const item = this.lookup(store, id)
             if (item) return this.output(store, item.data)
 
-            const loading = (async () => loader())()
+            const loading: Promise<T> = (async () => loader())()
                 .then((value) => {
-                    this.set(collection, id, value, expiresIn)
+                    // Skip caching if the collection or key was replaced, cleared, deleted or set while loading.
+                    if (this.store[collection] === store && store.pending.get(id) === loading) {
+                        this.set(collection, id, value, expiresIn)
+                    }
+
                     return value
                 })
-                .finally(() => store.pending.delete(id))
+                .finally(() => {
+                    if (store.pending.get(id) === loading) store.pending.delete(id)
+                })
 
             store.pending.set(id, loading)
             return await loading
@@ -272,7 +281,11 @@ class Bitecache {
     del = (collection: string, key: CacheKey): boolean => {
         try {
             const store = this.getStore(collection)
-            return store ? store.items.delete(key.toString()) : false
+            if (!store) return false
+
+            const id = key.toString()
+            store.pending.delete(id)
+            return store.items.delete(id)
         } catch (ex) {
             logger.error("Bitecache.del", collection, key, ex)
             throw ex
@@ -381,6 +394,7 @@ class Bitecache {
                 if (!store) continue
 
                 store.items.clear()
+                store.pending.clear()
                 store.hits = store.misses = store.evictions = 0
             }
         } catch (ex) {
