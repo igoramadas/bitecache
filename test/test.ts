@@ -546,6 +546,16 @@ describe("Bitecache Extended Tests", function () {
         assert.equal(bitecache.get("ext-stale", "b"), "fresh")
     })
 
+    it("getOrSet returns separate clones to concurrent callers on clone collections", async function () {
+        const loader = async () => (await sleep(20), {a: 1})
+        const [a, b] = await Promise.all([bitecache.getOrSet("ext-clone", "shared", loader), bitecache.getOrSet("ext-clone", "shared", loader)])
+
+        assert.notEqual(a, b)
+        a.a = 2
+        assert.equal(b.a, 1)
+        assert.equal(bitecache.get("ext-clone", "shared").a, 1)
+    })
+
     it("Typed collection handle uses the named collection", async function () {
         bitecache.setup("ext-typed", 60)
         const users = bitecache.collection("ext-typed")

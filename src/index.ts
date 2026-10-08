@@ -230,7 +230,7 @@ class Bitecache {
 
             const id = key.toString()
             const pending = store.pending.get(id)
-            if (pending) return await pending
+            if (pending) return this.output(store, await pending)
 
             const item = this.lookup(store, id)
             if (item) return this.output(store, item.data)
@@ -249,7 +249,7 @@ class Bitecache {
                 })
 
             store.pending.set(id, loading)
-            return await loading
+            return this.output(store, await loading)
         } catch (ex) {
             logger.error("Bitecache.getOrSet", collection, key, ex)
             throw ex
