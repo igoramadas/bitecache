@@ -1,6 +1,7 @@
 // TEST: BITECACHE
 
-import {describe, it} from "mocha"
+import {after, before, describe, it} from "mocha"
+import assert from "node:assert/strict"
 require("chai").should()
 
 describe("Bitecache Tests", function () {
@@ -58,7 +59,7 @@ describe("Bitecache Tests", function () {
     })
 
     it("Access the store directly", function (done) {
-        if (bitecache.store?.test?.items?.b.data == "Second") {
+        if (bitecache.store?.test?.items?.get("b")?.data == "Second") {
             done()
         } else {
             done("Failed to access item b from store test (created on last step)")
@@ -304,5 +305,225 @@ describe("Bitecache Tests", function () {
 
     it("Clear all", function () {
         bitecache.clear()
+    })
+})
+
+describe("Bitecache Extended Tests", function () {
+    const bitecache = require("../src/index")
+    const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+    before(function () {
+        bitecache.strict = true
+    })
+
+    after(function () {
+        bitecache.destroy()
+    })
+
+    it("Overwriting a key should not increase the size", function () {
+        bitecache.setup("ext-size", 60)
+        bitecache.set("ext-size", "a", 1)
+        bitecache.set("ext-size", "a", 2)
+
+        assert.equal(bitecache.stats("ext-size").size, 1)
+        assert.equal(bitecache.get("ext-size", "a"), 2)
+    })
+
+    it("Keys named after Object.prototype members are regular keys", function () {
+        assert.equal(bitecache.del("ext-size", "constructor"), false)
+        assert.equal(bitecache.get("ext-size", "toString"), null)
+        assert.equal(bitecache.stats("ext-size").size, 1)
+    })
+
+    it("Expiration timers do not keep the process alive", function () {
+        const first = bitecache.store["ext-size"].expireTimer
+        bitecache.setup("ext-size", 60)
+
+        assert.notEqual(bitecache.store["ext-size"].expireTimer, first)
+        assert.equal(bitecache.store["ext-size"].expireTimer.hasRef(), false)
+    })
+
+    it("Merge returns false for missing items and null data", function () {
+        bitecache.set("ext-size", "null", null)
+
+        assert.equal(bitecache.merge("ext-size", "null", {a: 1}), false)
+        assert.equal(bitecache.merge("ext-size", "missing", {a: 1}), false)
+    })
+
+    it("Count hits, misses, and hit ratio (expired reads are misses, del is not)", async function () {
+        bitecache.setup("ext-stats", 60)
+        bitecache.set("ext-stats", "a", 1)
+        bitecache.set("ext-stats", "short", 1, 0.1)
+
+        bitecache.get("ext-stats", "a")
+        bitecache.get("ext-stats", "nope")
+        bitecache.del("ext-stats", "nope")
+        await sleep(150)
+        bitecache.get("ext-stats", "short")
+
+        const stats = bitecache.stats("ext-stats")
+        assert.equal(stats.hits, 1)
+        assert.equal(stats.misses, 2)
+        assert.equal(stats.hitRatio, 1 / 3)
+        assert.equal(bitecache.totalHits >= 1, true)
+    })
+
+    it("Memory size accounts for dates, buffers, maps, sets and circular objects", function () {
+        const circular: any = {a: "a"}
+        circular.self = circular
+
+        bitecache.setup("ext-mem", 60)
+        bitecache.set("ext-mem", "empty", null)
+        const base = bitecache.memSizeOf("ext-mem")
+
+        bitecache.set("ext-mem", "buffer", Buffer.alloc(100))
+        bitecache.set("ext-mem", "map", new Map([["k", "value"]]))
+        bitecache.set("ext-mem", "set", new Set(["value"]))
+        bitecache.set("ext-mem", "circular", circular)
+
+        assert.equal(bitecache.memSizeOf("ext-mem") > base + 100, true)
+    })
+
+    it("getOrSet loads once, caches, and shares concurrent loads", async function () {
+        bitecache.setup("ext-load", 60)
+        let calls = 0
+        const loader = async () => {
+            calls++
+            await sleep(20)
+            return {calls}
+        }
+
+        const [a, b] = await Promise.all([bitecache.getOrSet("ext-load", "k", loader), bitecache.getOrSet("ext-load", "k", loader)])
+        const c = await bitecache.getOrSet("ext-load", "k", loader)
+
+        assert.equal(calls, 1)
+        assert.equal(a, b)
+        assert.equal(a, c)
+    })
+
+    it("getOrSet caches null results and does not cache failures", async function () {
+        let calls = 0
+
+        await bitecache.getOrSet("ext-load", "null", () => (calls++, null))
+        await bitecache.getOrSet("ext-load", "null", () => (calls++, null))
+        assert.equal(calls, 1)
+
+        await assert.rejects(bitecache.getOrSet("ext-load", "fail", () => Promise.reject(new Error("fail"))), /fail/)
+        assert.equal(bitecache.has("ext-load", "fail"), false)
+        assert.equal(await bitecache.getOrSet("ext-load", "fail", () => "ok"), "ok")
+    })
+
+    it("getOrSet only runs the loader on invalid collections if strict is false", async function () {
+        await assert.rejects(bitecache.getOrSet("ext-invalid", "k", () => 1), /Invalid collection/)
+
+        bitecache.strict = false
+        assert.equal(await bitecache.getOrSet("ext-invalid", "k", () => 1), 1)
+        bitecache.strict = true
+    })
+
+    it("has, keys, values and entries ignore expired items and do not count as reads", async function () {
+        bitecache.setup("ext-list", 60)
+        bitecache.set("ext-list", "a", 1)
+        bitecache.set("ext-list", 2, "b")
+        bitecache.set("ext-list", "short", 3, 0.1)
+        await sleep(150)
+
+        assert.equal(bitecache.has("ext-list", "a"), true)
+        assert.equal(bitecache.has("ext-list", "short"), false)
+        assert.deepEqual(bitecache.keys("ext-list"), ["a", "2"])
+        assert.deepEqual(bitecache.values("ext-list"), [1, "b"])
+        assert.deepEqual(bitecache.entries("ext-list"), [["a", 1], ["2", "b"]])
+        assert.equal(bitecache.stats("ext-list").hits, 0)
+        assert.equal(bitecache.stats("ext-list").misses, 0)
+    })
+
+    it("maxItems evicts the least recently used item", function () {
+        const evicted: string[] = []
+        bitecache.setup("ext-lru", {expiresIn: 60, maxItems: 2, onEvict: (key: string) => evicted.push(key)})
+
+        bitecache.set("ext-lru", "a", 1)
+        bitecache.set("ext-lru", "b", 2)
+        bitecache.get("ext-lru", "a")
+        bitecache.set("ext-lru", "c", 3)
+
+        assert.deepEqual(bitecache.keys("ext-lru"), ["a", "c"])
+        assert.deepEqual(evicted, ["b"])
+        assert.equal(bitecache.stats("ext-lru").evictions, 1)
+        assert.equal(bitecache.stats("ext-lru").maxItems, 2)
+    })
+
+    it("Sliding expiration renews items on read, touch renews on demand", async function () {
+        bitecache.setup("ext-slide", {expiresIn: 60, sliding: true})
+        bitecache.set("ext-slide", "a", 1, 0.3)
+        bitecache.set("ext-slide", "b", 2, 0.3)
+
+        await sleep(200)
+        assert.equal(bitecache.get("ext-slide", "a"), 1)
+        assert.equal(bitecache.touch("ext-slide", "b"), true)
+        await sleep(200)
+
+        assert.equal(bitecache.get("ext-slide", "a"), 1)
+        assert.equal(bitecache.get("ext-slide", "b"), 2)
+        assert.equal(bitecache.touch("ext-slide", "b", 60), true)
+        assert.equal(bitecache.touch("ext-slide", "missing"), false)
+    })
+
+    it("onExpire is called with key and data, callback errors are contained", async function () {
+        const expired: any[] = []
+        bitecache.setup("ext-expire", {
+            expiresIn: 0.1,
+            onExpire: (key: string, data: any) => {
+                expired.push([key, data])
+                throw new Error("callback error")
+            }
+        })
+        bitecache.set("ext-expire", "a", 1)
+        await sleep(250)
+
+        assert.deepEqual(expired, [["a", 1]])
+        assert.equal(bitecache.stats("ext-expire").size, 0)
+    })
+
+    it("clone isolates cached data from callers", function () {
+        bitecache.setup("ext-clone", {expiresIn: 60, clone: true})
+        const original = {a: {b: 1}}
+        bitecache.set("ext-clone", "k", original)
+
+        original.a.b = 2
+        const first = bitecache.get("ext-clone", "k")
+        first.a.b = 3
+
+        assert.equal(bitecache.get("ext-clone", "k").a.b, 1)
+    })
+
+    it("Typed collection handle uses the named collection", async function () {
+        bitecache.setup("ext-typed", 60)
+        const users = bitecache.collection("ext-typed")
+
+        users.set("a", {name: "A"})
+        users.merge("a", {name: "B"})
+        assert.equal(users.get("a").name, "B")
+        assert.equal(users.has("a"), true)
+        assert.equal(await users.getOrSet("b", () => ({name: "C"})).then((u: any) => u.name), "C")
+        assert.deepEqual(users.keys(), ["a", "b"])
+        assert.equal(users.stats().size, 2)
+        assert.equal(users.del("a"), true)
+        users.clear()
+        assert.equal(users.stats().size, 0)
+    })
+
+    it("Destroy removes collections", function () {
+        bitecache.destroy("ext-typed")
+
+        assert.equal(bitecache.store["ext-typed"], undefined)
+        assert.throws(() => bitecache.destroy("ext-typed"), /Invalid collection/)
+
+        bitecache.destroy()
+        assert.equal(Object.keys(bitecache.store).length, 0)
+    })
+
+    it("Setup with invalid expiresIn falls back to the minimum", function () {
+        bitecache.setup("ext-min", undefined)
+        assert.equal(bitecache.store["ext-min"].expiresIn, 0.1)
     })
 })
