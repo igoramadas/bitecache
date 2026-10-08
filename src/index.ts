@@ -169,9 +169,12 @@ class Bitecache {
             const ttl = (expiresIn > 0 ? expiresIn : store.expiresIn) * 1000
             const id = key.toString()
 
+            // Clone first so a failed clone keeps the existing value.
+            const data = store.clone ? structuredClone(value) : value
+
             // Delete first so overwritten keys also become the most recently used.
             store.items.delete(id)
-            store.items.set(id, {data: store.clone ? structuredClone(value) : value, expires: Date.now() + ttl, ttl: ttl})
+            store.items.set(id, {data: data, expires: Date.now() + ttl, ttl: ttl})
 
             // Evict least recently used items above the limit.
             if (store.maxItems > 0) {

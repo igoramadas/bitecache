@@ -496,6 +496,13 @@ describe("Bitecache Extended Tests", function () {
         assert.equal(bitecache.get("ext-clone", "k").a.b, 1)
     })
 
+    it("A failed clone on set keeps the existing value", function () {
+        bitecache.set("ext-clone", "keep", {a: 1})
+
+        assert.throws(() => bitecache.set("ext-clone", "keep", {fn: () => 1}))
+        assert.deepEqual(bitecache.get("ext-clone", "keep"), {a: 1})
+    })
+
     it("Typed collection handle uses the named collection", async function () {
         bitecache.setup("ext-typed", 60)
         const users = bitecache.collection("ext-typed")
