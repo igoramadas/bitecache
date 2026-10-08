@@ -555,6 +555,16 @@ describe("Bitecache Extended Tests", function () {
         assert.equal(bitecache.get("ext-stale", "b"), "fresh")
     })
 
+    it("getOrSet keeps a value the loader sets synchronously for its own key", async function () {
+        const result = await bitecache.getOrSet("ext-stale", "e", () => {
+            bitecache.set("ext-stale", "e", "from-loader")
+            return "returned"
+        })
+
+        assert.equal(result, "returned")
+        assert.equal(bitecache.get("ext-stale", "e"), "from-loader")
+    })
+
     it("getOrSet returns separate clones to concurrent callers on clone collections", async function () {
         const loader = async () => (await sleep(20), {a: 1})
         const [a, b] = await Promise.all([bitecache.getOrSet("ext-clone", "shared", loader), bitecache.getOrSet("ext-clone", "shared", loader)])

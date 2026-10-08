@@ -235,7 +235,9 @@ class Bitecache {
             const item = this.lookup(store, id)
             if (item) return this.output(store, item.data)
 
-            const loading: Promise<T> = (async () => loader())()
+            // Starting the loader on a microtask makes sure the pending entry exists before it runs.
+            const loading: Promise<T> = Promise.resolve()
+                .then(() => loader())
                 .then((value) => {
                     // Skip caching if the collection or key was replaced, cleared, deleted or set while loading.
                     if (this.store[collection] === store && store.pending.get(id) === loading) {
