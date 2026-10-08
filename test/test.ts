@@ -503,6 +503,15 @@ describe("Bitecache Extended Tests", function () {
         assert.deepEqual(bitecache.get("ext-clone", "keep"), {a: 1})
     })
 
+    it("Merge on a clone collection does not share the merged data with the caller", function () {
+        const profile = {name: "A"}
+        bitecache.set("ext-clone", "merge", {})
+        bitecache.merge("ext-clone", "merge", {profile})
+
+        profile.name = "B"
+        assert.equal(bitecache.get("ext-clone", "merge").profile.name, "A")
+    })
+
     it("Typed collection handle uses the named collection", async function () {
         bitecache.setup("ext-typed", 60)
         const users = bitecache.collection("ext-typed")

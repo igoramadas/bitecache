@@ -314,7 +314,7 @@ class Bitecache {
             const item = store ? this.peek(store, key.toString()) : null
             if (!item || !item.data || typeof item.data != "object") return false
 
-            Object.assign(item.data, dataToMerge)
+            Object.assign(item.data, store.clone ? structuredClone(dataToMerge) : dataToMerge)
             return true
         } catch (ex) {
             logger.error("Bitecache.merge", collection, key, ex)
