@@ -93,5 +93,8 @@
             "lcov",
             "text"
         ]
+    },
+    "reviewAgents": {
+        "ready": "@coderabbitai"
     }
 }
