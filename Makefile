@@ -8,7 +8,7 @@ build:
 clean:
 	npm run clean
 
-publish:
+publish: build
 	npm publish
 
 test:
@@ -22,4 +22,4 @@ update:
 	npm install
 	npm run build
 
-.PHONY: test
+.PHONY: all build clean publish test update
